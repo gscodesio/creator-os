@@ -1,0 +1,279 @@
+// Prisma schema for CREATOR OS
+// Single source of truth for database persistence with PostgreSQL & Multi-Tenant Workspaces
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                   String            @id @default(cuid())
+  name                 String
+  email                String            @unique
+  passwordHash         String
+  emailVerified        Boolean           @default(false)
+  verificationToken    String?
+  verificationExpires  DateTime?
+  resetPasswordToken   String?
+  resetPasswordExpires DateTime?
+  failedLoginAttempts  Int               @default(0)
+  lockoutUntil         DateTime?
+  workspaces           WorkspaceMember[]
+  sessions             Session[]
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+
+  @@index([email])
+}
+
+model Workspace {
+  id           String            @id @default(cuid())
+  name         String
+  ownerId      String
+  members      WorkspaceMember[]
+  sessions     Session[]
+  settings     Settings?
+  topics       Topic[]
+  contentAssets ContentAsset[]
+  tasks        Task[]
+  mediaAssets  MediaAsset[]
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  @@index([ownerId])
+}
+
+model WorkspaceMember {
+  id          String    @id @default(cuid())
+  workspaceId String
+  userId      String
+  role        String    @default("owner") // owner, member
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+
+  @@unique([workspaceId, userId])
+  @@index([userId])
+  @@index([workspaceId])
+}
+
+model Session {
+  id          String    @id @default(cuid())
+  token       String    @unique
+  userId      String
+  workspaceId String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  expiresAt   DateTime
+  createdAt   DateTime  @default(now())
+
+  @@index([token])
+  @@index([userId])
+  @@index([workspaceId])
+}
+
+model Topic {
+  id               String        @id @default(cuid())
+  workspaceId      String?
+  workspace        Workspace?    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  title            String
+  subtitle         String?
+  type             String        // YouTube Long, Standalone Reel, Long Video Derived, LinkedIn, Carousel
+  subType          String?       // Informative, Long Video Related, Standalone, Long Video Derived
+  status           String        @default("idea") // idea, planning, in_progress, converted
+  date             String        @default("Today")
+  notes            String?
+  thumbBg          String?       @default("bg-gradient-to-br from-slate-900 to-blue-950 text-blue-300")
+  thumbText        String?
+  thumbSub         String?
+  tag              String?
+  description      String?
+  scriptOutline    String?
+  currentStepIndex Int           @default(0)
+  contentAssetId   String?       @unique
+  contentAsset     ContentAsset? @relation(fields: [contentAssetId], references: [id], onDelete: SetNull)
+  tasks            Task[]
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  @@index([status])
+  @@index([type])
+  @@index([title])
+  @@index([workspaceId])
+}
+
+model ContentAsset {
+  id                 String                 @id @default(cuid())
+  workspaceId        String?
+  workspace          Workspace?             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  title              String
+  type               String                 // YouTube Long, Derived Reel, Standalone Reel, LinkedIn, Carousel
+  subType            String?                // Informative, Long Video Related
+  reelType           String?                // Standalone, Long Video Derived
+  workflowStatus     String                 @default("topic") // topic, scripting, shooting, editing, exported, writing, ready, creating, scheduled, published
+  actionStatus       String                 @default("in_progress") // in_progress, completed
+  stage              String                 @default("Topic")
+  completedSteps     Int                    @default(0)
+  totalSteps         Int                    @default(7)
+  hasActive          Boolean                @default(true)
+  source             String                 @default("Standalone")
+  isParentLink       Boolean                @default(false)
+  parentLongVideoId  String?
+  parentLongVideo    ContentAsset?          @relation("DerivedReels", fields: [parentLongVideoId], references: [id], onDelete: Cascade)
+  derivedReels       ContentAsset[]         @relation("DerivedReels")
+  topicId            String?                @unique
+  topic              Topic?
+  driveAsset         String?                @default("Not Added")
+  googleDriveUrl     String?
+  duration           String?
+  thumbBg            String                 @default("bg-gradient-to-br from-slate-900 to-blue-950 text-blue-300")
+  thumbText          String
+  thumbSub           String?
+  lastUpdated        String                 @default("Today")
+  distributions      PlatformDistribution[]
+  tasks              Task[]
+  mediaAssets        MediaAsset[]
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+
+  @@index([workflowStatus])
+  @@index([type])
+  @@index([title])
+  @@index([parentLongVideoId])
+  @@index([workspaceId])
+}
+
+model PlatformDistribution {
+  id             String       @id @default(cuid())
+  contentAssetId String
+  contentAsset   ContentAsset @relation(fields: [contentAssetId], references: [id], onDelete: Cascade)
+  platform       String       // YouTube, YouTube Shorts, Instagram, LinkedIn, Carousel
+  scheduledDate  String?      // YYYY-MM-DD
+  scheduledTime  String?      // e.g. "10:00 AM"
+  workflowStatus String       @default("Not Scheduled")
+  internalStatus String       @default("Not Scheduled") // Scheduled, Published, Not Scheduled
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([contentAssetId, platform])
+  @@index([contentAssetId])
+  @@index([platform])
+  @@index([scheduledDate])
+  @@index([internalStatus])
+}
+
+model Task {
+  id                String        @id
+  workspaceId       String?
+  workspace         Workspace?    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  title             String
+  reason            String
+  badge             String        // Planning, Writing, Shooting, Editing, Scheduling, Publishing, Creating
+  color             String
+  thumbType         String        // video, linkedin, calendar, carousel
+  type              String        // YouTube Long, Derived Reel, Standalone Reel, LinkedIn, Carousel
+  category          String        // Urgent, Production, Publishing
+  status            String        @default("Today") // Today, Upcoming, Completed
+  priority          String        @default("Medium") // High, Medium, Low
+  priorityScore     Int           @default(0)
+  sortOrder         Int           @default(0)
+  contentId         String?
+  contentAsset      ContentAsset? @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  topicId           String?
+  topic             Topic?        @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  contentTitle      String
+  dueNotice         String?
+  completedAt       String?
+  actionStage       String?       // Script, Shoot, Edit, Export, Schedule, Publish, Plan, Write, Ready, Create
+  isPreparationTask Boolean       @default(false)
+  targetContentType String?
+  targetSubType     String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  @@index([status])
+  @@index([priority])
+  @@index([sortOrder])
+  @@index([contentId])
+  @@index([topicId])
+  @@index([workspaceId])
+}
+
+model Settings {
+  id                   String     @id @default("default")
+  workspaceId          String?    @unique
+  workspace            Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  isConfigured         Boolean    @default(false)
+  profileName          String?
+  profileRole          String?
+  avatar               String?
+  timezone             String?    @default("Asia/Kolkata")
+  startOfWeek          String?
+  calendarView         String?
+  contentSort          String?
+  theme                String?
+  advanceBufferDays    Int?
+  isCustomBuffer       Boolean?
+  maintainAutoBuffer   Boolean?
+  ytLongCount          Int?
+  ytLongDays           String?
+  ytShortsCount        Int?
+  igReelsCount         Int?
+  igDerivedCount       Int?
+  igStandaloneCount    Int?
+  liPostsCount         Int?
+  liInfCount           Int?
+  liVidCount           Int?
+  carTarget            Int?
+  carouselFrequency    String?
+  autoTaskGen          Boolean?
+  autoRepurposing      Boolean?
+  autoBufferCalc       Boolean?
+  dailyCapacity        String?
+  customCapacity       Int?
+  priorityOrder        String?
+  derivedReelsPerLongVideo Int?   @default(3)
+  overallStartDate     String?    @default("")
+  currentSimulatedDate String?    @default("")
+  useSimulatedDate     Boolean?   @default(false)
+  useSeparateDates     Boolean?   @default(false)
+  youtubeDate          String?    @default("")
+  instagramDate        String?    @default("")
+  linkedinDate         String?    @default("")
+  carouselDate         String?    @default("")
+  connectedPlatforms   String?
+  platformOrder        String?
+  minSchedulingGap     Int?
+  maxSchedulingGap     Int?
+  restrictSameDay      Boolean?
+  createdAt            DateTime   @default(now())
+  updatedAt            DateTime   @updatedAt
+}
+
+model MediaAsset {
+  id               String        @id @default(cuid())
+  workspaceId      String?
+  workspace        Workspace?    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  contentAssetId   String?
+  contentAsset     ContentAsset? @relation(fields: [contentAssetId], references: [id], onDelete: SetNull)
+  publicId         String
+  secureUrl        String
+  resourceType     String        @default("image") // image, video, raw
+  format           String?
+  bytes            Int?
+  width            Int?
+  height           Int?
+  duration         Float?
+  purpose          String        @default("thumbnail") // thumbnail, export, raw_footage, script, attachment
+  originalFilename String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  @@index([contentAssetId])
+  @@index([publicId])
+  @@index([workspaceId])
+}
